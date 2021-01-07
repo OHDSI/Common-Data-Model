@@ -62,23 +62,21 @@ DRUG ERA
 Note: Eras derived from DRUG_EXPOSURE table, using 30d gap
 
  ****/
-IF XACT_STATE() = 1 COMMIT; IF OBJECT_ID('tempdb..#cteDrugTarget', 'U') IS NOT NULL  DROP TABLE  #cteDrugTarget;
+IF OBJECT_ID('tempdb..#cteDrugTarget', 'U') IS NOT NULL
+	DROP TABLE #cteDrugTarget;
 
 /* / */
 
 -- Normalize DRUG_EXPOSURE_END_DATETIME to either the existing drug exposure end date, or add days supply, or add 1 day to the start date
-IF XACT_STATE() = 1 COMMIT; CREATE TABLE  #cteDrugTarget
-  WITH (LOCATION = USER_DB, DISTRIBUTION = HASH(person_id)) AS
-SELECT
-d.DRUG_EXPOSURE_ID
-	,d. person_id, c.CONCEPT_ID
+SELECT d.DRUG_EXPOSURE_ID
+	,d.PERSON_ID
+	,c.CONCEPT_ID
 	,d.DRUG_TYPE_CONCEPT_ID
 	,DRUG_EXPOSURE_START_DATETIME
 	,COALESCE(DRUG_EXPOSURE_END_DATETIME, DATEADD(day, DAYS_SUPPLY, DRUG_EXPOSURE_START_DATETIME), DATEADD(day, 1, DRUG_EXPOSURE_START_DATETIME)) AS DRUG_EXPOSURE_END_DATETIME
 	,c.CONCEPT_ID AS INGREDIENT_CONCEPT_ID
-
-FROM
-[CDM].[CDMSCHEMA].DRUG_EXPOSURE d
+INTO #cteDrugTarget
+FROM [CDM].[CDMSCHEMA].DRUG_EXPOSURE d
 INNER JOIN [CDM].[CDMSCHEMA].CONCEPT_ANCESTOR ca ON ca.DESCENDANT_CONCEPT_ID = d.DRUG_CONCEPT_ID
 INNER JOIN [CDM].[CDMSCHEMA].CONCEPT c ON ca.ANCESTOR_CONCEPT_ID = c.CONCEPT_ID
 WHERE c.VOCABULARY_ID = 'RxNorm'
@@ -86,18 +84,16 @@ WHERE c.VOCABULARY_ID = 'RxNorm'
 
 /* / */
 
-IF XACT_STATE() = 1 COMMIT; IF OBJECT_ID('tempdb..#cteEndDates', 'U') IS NOT NULL  DROP TABLE  #cteEndDates;
+IF OBJECT_ID('tempdb..#cteEndDates', 'U') IS NOT NULL
+	DROP TABLE #cteEndDates;
 
 /* / */
 
-IF XACT_STATE() = 1 COMMIT; CREATE TABLE  #cteEndDates
-  WITH (LOCATION = USER_DB, DISTRIBUTION = HASH(person_id)) AS
-SELECT
- person_id, INGREDIENT_CONCEPT_ID
+SELECT PERSON_ID
+	,INGREDIENT_CONCEPT_ID
 	,DATEADD(day, - 30, EVENT_DATETIME) AS END_DATETIME -- unpad the end date
-
-FROM
-(
+INTO #cteEndDates
+FROM (
 	SELECT E1.PERSON_ID
 		,E1.INGREDIENT_CONCEPT_ID
 		,E1.EVENT_DATETIME
@@ -159,20 +155,18 @@ WHERE 2 * E.START_ORDINAL - E.OVERALL_ORD = 0;
 
 /* / */
 
-IF XACT_STATE() = 1 COMMIT; IF OBJECT_ID('tempdb..#cteDrugExpEnds', 'U') IS NOT NULL  DROP TABLE  #cteDrugExpEnds;
+IF OBJECT_ID('tempdb..#cteDrugExpEnds', 'U') IS NOT NULL
+	DROP TABLE #cteDrugExpEnds;
 
 /* / */
 
-IF XACT_STATE() = 1 COMMIT; CREATE TABLE  #cteDrugExpEnds
-  WITH (LOCATION = USER_DB, DISTRIBUTION = HASH(person_id)) AS
-SELECT
-d. person_id, d.INGREDIENT_CONCEPT_ID
+SELECT d.PERSON_ID
+	,d.INGREDIENT_CONCEPT_ID
 	,d.DRUG_TYPE_CONCEPT_ID
 	,d.DRUG_EXPOSURE_START_DATETIME
 	,MIN(e.END_DATETIME) AS ERA_END_DATETIME
-
-FROM
-#cteDrugTarget d
+INTO #cteDrugExpEnds
+FROM #cteDrugTarget d
 INNER JOIN #cteEndDates e ON d.PERSON_ID = e.PERSON_ID
 	AND d.INGREDIENT_CONCEPT_ID = e.INGREDIENT_CONCEPT_ID
 	AND e.END_DATETIME >= d.DRUG_EXPOSURE_START_DATETIME
@@ -207,39 +201,36 @@ CONDITION ERA
 Note: Eras derived from CONDITION_OCCURRENCE table, using 30d gap
 
  ****/
-IF XACT_STATE() = 1 COMMIT; IF OBJECT_ID('tempdb..#condition_era_phase_1', 'U') IS NOT NULL  DROP TABLE  #condition_era_phase_1;
+IF OBJECT_ID('tempdb..#condition_era_phase_1', 'U') IS NOT NULL
+	DROP TABLE #condition_era_phase_1;
 
 /* / */
 
-IF XACT_STATE() = 1 COMMIT; IF OBJECT_ID('tempdb..#cteConditionTarget', 'U') IS NOT NULL  DROP TABLE  #cteConditionTarget;
+IF OBJECT_ID('tempdb..#cteConditionTarget', 'U') IS NOT NULL
+	DROP TABLE #cteConditionTarget;
 
 /* / */
 
 -- create base eras from the concepts found in condition_occurrence
-IF XACT_STATE() = 1 COMMIT; CREATE TABLE  #cteConditionTarget
-  WITH (LOCATION = USER_DB, DISTRIBUTION = HASH(person_id)) AS
-SELECT
-co. person_id, co.condition_concept_id
+SELECT co.PERSON_ID
+	,co.condition_concept_id
 	,co.CONDITION_START_DATETIME
 	,COALESCE(co.CONDITION_END_DATETIME, DATEADD(day, 1, CONDITION_START_DATETIME)) AS CONDITION_END_DATETIME
-
-FROM
-[CDM].[CDMSCHEMA].CONDITION_OCCURRENCE co;
-
-/* / */
-
-IF XACT_STATE() = 1 COMMIT; IF OBJECT_ID('tempdb..#cteCondEndDates', 'U') IS NOT NULL  DROP TABLE  #cteCondEndDates;
+INTO #cteConditionTarget
+FROM [CDM].[CDMSCHEMA].CONDITION_OCCURRENCE co;
 
 /* / */
 
-IF XACT_STATE() = 1 COMMIT; CREATE TABLE  #cteCondEndDates
-  WITH (LOCATION = USER_DB, DISTRIBUTION = HASH(person_id)) AS
-SELECT
- person_id, CONDITION_CONCEPT_ID
+IF OBJECT_ID('tempdb..#cteCondEndDates', 'U') IS NOT NULL
+	DROP TABLE #cteCondEndDates;
+
+/* / */
+
+SELECT PERSON_ID
+	,CONDITION_CONCEPT_ID
 	,DATEADD(day, - 30, EVENT_DATETIME) AS END_DATETIME -- unpad the end date
-
-FROM
-(
+INTO #cteCondEndDates
+FROM (
 	SELECT E1.PERSON_ID
 		,E1.CONDITION_CONCEPT_ID
 		,E1.EVENT_DATETIME
@@ -301,19 +292,17 @@ WHERE (2 * E.START_ORDINAL) - E.OVERALL_ORD = 0;
 
 /* / */
 
-IF XACT_STATE() = 1 COMMIT; IF OBJECT_ID('tempdb..#cteConditionEnds', 'U') IS NOT NULL  DROP TABLE  #cteConditionEnds;
+IF OBJECT_ID('tempdb..#cteConditionEnds', 'U') IS NOT NULL
+	DROP TABLE #cteConditionEnds;
 
 /* / */
 
-IF XACT_STATE() = 1 COMMIT; CREATE TABLE  #cteConditionEnds
-  WITH (LOCATION = USER_DB, DISTRIBUTION = HASH(person_id)) AS
-SELECT
-c. person_id, c.CONDITION_CONCEPT_ID
+SELECT c.PERSON_ID
+	,c.CONDITION_CONCEPT_ID
 	,c.CONDITION_START_DATETIME
 	,MIN(e.END_DATETIME) AS ERA_END_DATETIME
-
-FROM
-#cteConditionTarget c
+INTO #cteConditionEnds
+FROM #cteConditionTarget c
 INNER JOIN #cteCondEndDates e ON c.PERSON_ID = e.PERSON_ID
 	AND c.CONDITION_CONCEPT_ID = e.CONDITION_CONCEPT_ID
 	AND e.END_DATETIME >= c.CONDITION_START_DATETIME
